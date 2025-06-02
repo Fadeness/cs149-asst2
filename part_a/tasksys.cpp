@@ -1,9 +1,11 @@
 #include "tasksys.h"
+#include <thread>
+#include <cmath>
 
 
 IRunnable::~IRunnable() {}
 
-ITaskSystem::ITaskSystem(int num_threads) {}
+ITaskSystem::ITaskSystem(int num_threads): num_threads {num_threads} {}
 ITaskSystem::~ITaskSystem() {}
 
 /*
@@ -67,10 +69,23 @@ void TaskSystemParallelSpawn::run(IRunnable* runnable, int num_total_tasks) {
     // method in Part A.  The implementation provided below runs all
     // tasks sequentially on the calling thread.
     //
+    std::vector<std::thread> workers(num_total_tasks);
 
-    for (int i = 0; i < num_total_tasks; i++) {
-        runnable->runTask(i, num_total_tasks);
+    for (int i = 0; i < num_total_tasks; ++i)
+    {
+        workers[i] = std::thread([runnable, i, num_total_tasks]() {
+            runnable->runTask(i, num_total_tasks);
+        });
     }
+
+    for (int i = 0; i < num_total_tasks; ++i)
+    {
+        workers[i].join();
+    }
+
+    // for (int i = 0; i < num_total_tasks; i++) {
+    //     runnable->runTask(i, num_total_tasks);
+    // }
 }
 
 TaskID TaskSystemParallelSpawn::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
