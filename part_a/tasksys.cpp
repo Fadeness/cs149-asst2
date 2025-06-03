@@ -112,7 +112,8 @@ const char* TaskSystemParallelThreadPoolSpinning::name() {
     return "Parallel + Thread Pool + Spin";
 }
 
-TaskSystemParallelThreadPoolSpinning::TaskSystemParallelThreadPoolSpinning(int num_threads): ITaskSystem(num_threads), stop {false} {
+TaskSystemParallelThreadPoolSpinning::TaskSystemParallelThreadPoolSpinning(int num_threads)
+    : ITaskSystem(num_threads), stop {false} {
     //
     // TODO: CS149 student implementations may decide to perform setup
     // operations (such as thread pool construction) here.
@@ -126,19 +127,20 @@ TaskSystemParallelThreadPoolSpinning::TaskSystemParallelThreadPoolSpinning(int n
             {
                 std::function<void()> task;
                 {
-                    std::unique_lock<std::mutex> lock(queue_mutex);
-                    condition.wait(lock, [this] {
-                        return stop || !tasks.empty();
-                    });
+                    std::unique_lock<std::mutex> lock(queue_mutex);                  
 
                     if (stop && tasks.empty()) 
                         return;
-                    
-                    task = std::move(tasks.front());
-                    tasks.pop();
+                    if (!tasks.empty()) {
+                        task = std::move(tasks.front());
+                        tasks.pop();
+                    }
                 }
 
-                task();
+                if (task) {
+                    task();
+                }
+
             }
         });
     }
@@ -149,8 +151,6 @@ TaskSystemParallelThreadPoolSpinning::~TaskSystemParallelThreadPoolSpinning() {
         std::unique_lock<std::mutex> lock(queue_mutex);
         stop = true;
     }
-
-    condition.notify_all();
 
     for (auto& worker : workers)
     {
@@ -183,8 +183,6 @@ void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_tota
         }
     }
 
-    condition.notify_all();
-
     for (auto& future : futures) 
         future.wait();   
 
@@ -214,13 +212,37 @@ const char* TaskSystemParallelThreadPoolSleeping::name() {
     return "Parallel + Thread Pool + Sleep";
 }
 
-TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int num_threads): ITaskSystem(num_threads) {
+TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int num_threads)
+    : ITaskSystem(num_threads), stop {false} {
     //
     // TODO: CS149 student implementations may decide to perform setup
     // operations (such as thread pool construction) here.
     // Implementations are free to add new class member variables
     // (requiring changes to tasksys.h).
     //
+    for (int i = 0; i < num_threads; ++i)
+    {
+        workers.emplace_back([this]() {
+            while (true)
+            {
+                std::function<void()> task;
+                {
+                    std::unique_lock<std::mutex> lock(queue_mutex);
+                    condition.wait(lock, [this] {
+                        return stop || !tasks.empty();
+                    });
+
+                    if (stop && tasks.empty()) 
+                        return;
+                    
+                    task = std::move(tasks.front());
+                    tasks.pop();
+                }
+
+                task();
+            }
+        });
+    }
 }
 
 TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
@@ -230,6 +252,18 @@ TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
     // Implementations are free to add new class member variables
     // (requiring changes to tasksys.h).
     //
+    {
+        std::unique_lock<std::mutex> lock(queue_mutex);
+        stop = true;
+    }
+
+    condition.notify_all();
+
+    for (auto& worker : workers)
+    {
+        if (worker.joinable())
+            worker.join();
+    }
 }
 
 void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_total_tasks) {
@@ -241,9 +275,29 @@ void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_tota
     // tasks sequentially on the calling thread.
     //
 
-    for (int i = 0; i < num_total_tasks; i++) {
-        runnable->runTask(i, num_total_tasks);
+    std::vector<std::future<void>>futures;
+    {
+        std::unique_lock<std::mutex> lock(queue_mutex);
+        for (int i = 0; i < num_total_tasks; ++i)
+        {
+            auto task = std::make_shared<std::packaged_task<void()>>(
+                [runnable, i, num_total_tasks]() {
+                    runnable->runTask(i, num_total_tasks);
+                }
+            );
+            futures.push_back(task->get_future());
+            tasks.emplace([task]() { (*task)(); });
+        }
     }
+
+    condition.notify_all();
+
+    for (auto& future : futures) 
+        future.wait();   
+
+    // for (int i = 0; i < num_total_tasks; i++) {
+    //     runnable->runTask(i, num_total_tasks);
+    // }
 }
 
 TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,

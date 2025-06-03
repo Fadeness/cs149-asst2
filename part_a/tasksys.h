@@ -62,7 +62,6 @@ class TaskSystemParallelThreadPoolSpinning: public ITaskSystem {
         std::vector<std::thread> workers;
         std::queue<std::function<void()>> tasks;
         std::mutex queue_mutex;
-        std::condition_variable condition;
         bool stop;
 };
 
@@ -81,6 +80,12 @@ class TaskSystemParallelThreadPoolSleeping: public ITaskSystem {
         TaskID runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
                                 const std::vector<TaskID>& deps);
         void sync();
+    private:
+        std::vector<std::thread> workers;
+        std::queue<std::function<void()>> tasks;
+        std::mutex queue_mutex;
+        std::condition_variable condition;
+        bool stop;
 };
 
 #endif
