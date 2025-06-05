@@ -3,6 +3,15 @@
 
 #include "itasksys.h"
 
+#include <queue>
+#include <thread>
+#include <functional>
+#include <mutex>
+#include <condition_variable>
+#include <future>
+#include <unordered_map>
+#include <atomic>
+
 /*
  * TaskSystemSerial: This class is the student's implementation of a
  * serial task execution engine.  See definition of ITaskSystem in
@@ -68,6 +77,29 @@ class TaskSystemParallelThreadPoolSleeping: public ITaskSystem {
         TaskID runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
                                 const std::vector<TaskID>& deps);
         void sync();
+    private:
+        struct TaskNode {
+            int num_unfinished_deps {0}; // Number of unsatisfied dependencies
+            int unfinished_tasks {0};
+            std::vector<TaskID> deps; // Tasks that depend on this task
+            bool enqueued {false};
+            TaskNode(int dep_size) : num_unfinished_deps {dep_size} {};
+            TaskNode() {};
+        };
+
+        std::vector<std::thread> workers; // worker threads
+        std::queue<std::function<void()>> tasks; // tasks
+        std::mutex queue_mutex;
+        std::condition_variable condition;
+        bool stop;
+
+        std::mutex graph_mutex;
+        std::unordered_map<int, TaskNode> task_graph;
+        std::queue<TaskID> ready_queue;
+        int num_unfinished_tasks {0};
+        std::atomic<int> launch_id_counter{0};
+        std::condition_variable graph_condition;
+        std::vector<std::future<void>>graph_futures;
 };
 
 #endif
